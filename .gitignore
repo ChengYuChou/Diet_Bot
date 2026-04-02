@@ -1,0 +1,14 @@
+# 敏感資訊：存放資料庫密碼與 API Key 的地方，絕對不可流出
+.env
+
+# Python 環境：別人的電腦會自己裝，不需要上傳這幾千個檔案
+.venv/
+__pycache__/
+*.pyc
+
+# 編輯器與系統檔案：保持 GitHub 頁面乾淨
+.vscode/
+.DS_Store
+
+# 資料庫實體資料：如果你有把 PostgreSQL 的資料對接到本地資料夾
+pgdata/
