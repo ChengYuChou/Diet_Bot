@@ -1,62 +1,67 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from db_manager import save_diet_record, get_today_records, get_today_summary
+from db_manager import save_diet_record, get_today_records, delete_record
 
-st.set_page_config(page_title="AI 飲食助手", layout="wide")
+st.set_page_config(page_title="資管飲食助手", layout="wide")
+st.title("🥗 飲食紀錄管理系統")
 
-# 1. 先抓取資料 (這決定了圖表的內容)
-summary = get_today_summary()
-records = get_today_records()
-df = pd.DataFrame(records)
+# 使用分頁系統：將「新增紀錄」與「歷史管理」分開
+tab1, tab2 = st.tabs(["➕ 新增飲食紀錄", "📋 今日紀錄管理"])
 
-st.title("🥗 智能飲食紀錄系統")
-
-# --- 2. 建立左右佈局 ---
-# col1 佔 2 份寬度，col2 佔 1 份寬度
-col1, col2 = st.columns([2, 1])
-
-with col1:
-    st.subheader("📝 新增紀錄")
-    # 這裡就是你的輸入區！
-    f_name = st.text_input("食物名稱", key="food_input")
-    f_cal = st.number_input("熱量 (kcal)", min_value=0, step=1)
+# --- Tab 1: 新增紀錄 ---
+with tab1:
+    st.subheader("手動紀錄營養成分")
     
-    # 讓三個營養素排成一橫列，節省空間
-    c1, c2, c3 = st.columns(3)
-    f_p = c1.number_input("蛋白質(g)", min_value=0.0)
-    f_f = c2.number_input("脂肪(g)", min_value=0.0)
-    f_c = c3.number_input("碳水(g)", min_value=0.0)
+    # 建立兩欄式佈局，讓介面更緊湊
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        food_name = st.text_input("食物名稱", placeholder="例如：香煎雞胸肉")
+        # 新增任務：餐別下拉選單
+        meal_type = st.selectbox("選擇餐別", ["早餐", "午餐", "晚餐", "點心", "宵夜"])
+        calories = st.number_input("熱量 (kcal)", min_value=0, step=10)
+        
+    with col2:
+        protein = st.number_input("蛋白質 (g)", min_value=0, step=1)
+        fat = st.number_input("脂肪 (g)", min_value=0, step=1)
+        carbs = st.number_input("碳水化合物 (g)", min_value=0, step=1)
 
-    if st.button("🚀 存入資料庫"):
-        if f_name:
-            new_data = {
-                "food_name": f_name, "calories": f_cal,
-                "protein": f_p, "fat": f_f, "carbs": f_c
-            }
-            save_diet_record(new_data)
-            st.success(f"已存入 {f_name}！")
-            st.rerun() # 存完後強制重新整理，圖表就會更新
+    if st.button("儲存今日紀錄", use_container_width=True):
+        if food_name:
+            # 呼叫更新後的 save_diet_record，傳入 meal_type
+            save_diet_record(food_name, calories, protein, fat, carbs, meal_type)
+            st.success(f"✅ 已成功存入 {meal_type}：{food_name}")
+            st.rerun()  # 立即重新整理畫面顯示新資料
         else:
-            st.error("請輸入食物名稱")
+            st.error("請輸入食物名稱！")
 
-with col2:
-    st.subheader("📊 今日營養比例")
-    if summary['total_cal'] > 0:
-        # 準備畫圖資料
-        pie_df = pd.DataFrame({
-            "營養素": ["蛋白質", "脂肪", "碳水"],
-            "重量 (g)": [summary['total_protein'], summary['total_fat'], summary['total_carbs']]
-        })
-        fig = px.pie(pie_df, values='重量 (g)', names='營養素', hole=0.4)
-        # 調整圖表外觀
-        fig.update_layout(margin=dict(t=0, b=0, l=0, r=0))
-        st.plotly_chart(fig, use_container_width=True)
+# --- Tab 2: 紀錄管理 ---
+with tab2:
+    st.subheader("今日飲食明細")
+    records = get_today_records()
+    
+    if records:
+        df = pd.DataFrame(records)
+        
+        # 顯示資料表 (排除 ID 不顯示在主表，讓畫面整潔)
+        display_df = df[['meal_type', 'food_name', 'calories', 'protein', 'fat', 'carbs']]
+        st.dataframe(display_df, use_container_width=True)
+        
+        st.divider()
+        
+        # 實作刪除功能
+        st.subheader("🗑️ 刪除錯誤紀錄")
+        # 讓使用者透過 ID 選擇要刪除哪一筆
+        delete_id = st.selectbox(
+            "選擇要刪除的紀錄 ID", 
+            df['id'].tolist(),
+            format_func=lambda x: f"ID: {x} - {df[df['id']==x]['food_name'].values[0]}"
+        )
+        
+        if st.button("確認刪除這筆紀錄"):
+            delete_record(delete_id)
+            st.warning(f"已刪除 ID 為 {delete_id} 的紀錄")
+            st.rerun()
     else:
-        st.info("尚無數據，請先從左側輸入")
-
-# --- 3. 下方顯示歷史明細 ---
-st.divider()
-st.subheader("🕒 今日紀錄明細")
-if not df.empty:
-    st.dataframe(df, use_container_width=True)
+        st.info("今天還沒有任何紀錄喔，快去第一分頁新增吧！")

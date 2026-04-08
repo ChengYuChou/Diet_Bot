@@ -15,32 +15,24 @@ def get_connection():
         port=os.getenv("DB_PORT", "5432")
     )
 
-def save_diet_record(data):
-    """存入紀錄 (加入錯誤處理與自動關閉)"""
-    conn = None
+def save_diet_record(food_name, calories, protein, fat, carbs, meal_type="其他"):
+    """存入紀錄，並增加 meal_type 選項"""
+    conn = get_connection()
+    if not conn: return
     try:
-        conn = get_connection()
         cur = conn.cursor()
-        sql = """
-            INSERT INTO diet_logs (food_name, calories, protein, fat, carbs)
-            VALUES (%s, %s, %s, %s, %s)
+        # SQL 語法現在多了一個 %s 給 meal_type
+        query = """
+        INSERT INTO diet_logs (food_name, calories, protein, fat, carbs, meal_type, record_date)
+        VALUES (%s, %s, %s, %s, %s, %s, CURRENT_DATE);
         """
-        cur.execute(sql, (
-            data['food_name'], 
-            data['calories'], 
-            data['protein'], 
-            data['fat'], 
-            data['carbs']
-        ))
+        cur.execute(query, (food_name, calories, protein, fat, carbs, meal_type))
         conn.commit()
         cur.close()
     except Exception as e:
-        print(f"❌ 資料庫寫入失敗: {e}")
-        if conn:
-            conn.rollback() # 發生錯誤時撤回交易
+        print(f"❌ 儲存失敗: {e}")
     finally:
-        if conn:
-            conn.close() # 無論成功失敗都關閉連線，避免連線數爆滿
+        conn.close()
 
 def get_today_records():
     """讀取今日紀錄"""
@@ -89,3 +81,23 @@ def get_today_summary():
         if conn:
             conn.close()
     return summary
+
+def delete_record(record_id):
+    """根據 ID 刪除指定的飲食紀錄"""
+    conn = get_connection()
+    if not conn:
+        return
+    
+    try:
+        cur = conn.cursor()
+        # 使用 WHERE id = %s 來確保只刪除那一筆特定資料
+        query = "DELETE FROM diet_logs WHERE id = %s;"
+        cur.execute(query, (record_id,))
+        
+        conn.commit()  # 記得一定要 Commit，不然資料庫不會真的刪掉
+        cur.close()
+        print(f"✅ 成功刪除 ID: {record_id} 的紀錄")
+    except Exception as e:
+        print(f"❌ 刪除失敗: {e}")
+    finally:
+        conn.close()
