@@ -6,20 +6,52 @@ from db_manager import save_diet_record, get_today_records, delete_record
 st.set_page_config(page_title="資管飲食助手", layout="wide")
 st.title("🥗 飲食紀錄管理系統")
 
+records = get_today_records()
+df = pd.DataFrame(records)
+
+DAILY_CALORIE_GOAL = 2000
+
+if not df.empty:
+    total_calories = df['calories'].sum()
+    total_protein = df['protein'].sum()
+    total_fat = df['fat'].sum()
+    total_carbs = df['carbs'].sum()
+    remaining_calories = DAILY_CALORIE_GOAL - total_calories
+else:
+    total_calories = total_protein = total_fat = total_carbs = 0
+    remaining_calories = DAILY_CALORIE_GOAL
+
+st.subheader("🔥 今日營養概覽")
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("已攝取熱量", f"{total_calories} kcal")
+m2.metric("剩餘預算", f"{remaining_calories} kcal", delta_color="inverse")
+m3.metric("蛋白質", f"{total_protein} g")
+m4.metric("碳水化合物", f"{total_carbs} g")
+
+# 進度條
+progress_pct = min(total_calories / DAILY_CALORIE_GOAL, 1.0)
+st.progress(progress_pct, text=f"今日熱量進度: {int(progress_pct*100)}%")
+
 # 使用分頁系統：將「新增紀錄」與「歷史管理」分開
 tab1, tab2 = st.tabs(["➕ 新增飲食紀錄", "📋 今日紀錄管理"])
 
 # --- Tab 1: 新增紀錄 ---
 with tab1:
     st.subheader("手動紀錄營養成分")
+
+    meal_type = st.radio(
+        "這是哪一餐？",
+        ["早餐", "午餐", "晚餐", "點心", "其他"],
+        horizontal=True  # 讓按鈕橫向排列，節省空間
+    )
+
+    st.divider()
     
     # 建立兩欄式佈局，讓介面更緊湊
     col1, col2 = st.columns(2)
     
     with col1:
         food_name = st.text_input("食物名稱", placeholder="例如：香煎雞胸肉")
-        # 新增任務：餐別下拉選單
-        meal_type = st.selectbox("選擇餐別", ["早餐", "午餐", "晚餐", "點心", "宵夜"])
         calories = st.number_input("熱量 (kcal)", min_value=0, step=10)
         
     with col2:
@@ -65,3 +97,26 @@ with tab2:
             st.rerun()
     else:
         st.info("今天還沒有任何紀錄喔，快去第一分頁新增吧！")
+
+if not df.empty:
+    st.divider()
+    col_chart1, col_chart2 = st.columns(2)
+    
+    with col_chart1:
+        # 三大營養素圓餅圖 (原本有的)
+        nutrients_df = pd.DataFrame({
+            "營養素": ["蛋白質", "脂肪", "碳水"],
+            "重量": [total_protein, total_fat, total_carbs]
+        })
+        fig_nutrients = px.pie(nutrients_df, values='重量', names='營養素', title="三大營養素比例")
+        st.plotly_chart(fig_nutrients, use_container_width=True)
+
+    with col_chart2:
+        # 新增：各餐熱量分佈圖
+        # 這裡會根據你昨天的 meal_type 自動分組
+        meal_stats = df.groupby('meal_type')['calories'].sum().reset_index()
+        fig_meals = px.bar(meal_stats, x='meal_type', y='calories', 
+                          title="各餐熱量分佈", 
+                          labels={'meal_type': '餐別', 'calories': '總熱量'},
+                          color='meal_type')
+        st.plotly_chart(fig_meals, use_container_width=True)

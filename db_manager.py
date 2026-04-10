@@ -15,7 +15,7 @@ def get_connection():
         port=os.getenv("DB_PORT", "5432")
     )
 
-def save_diet_record(food_name, calories, protein, fat, carbs, meal_type="其他"):
+def save_diet_record(food_name, calories, protein, fat, carbs, meal_type):
     """存入紀錄，並增加 meal_type 選項"""
     conn = get_connection()
     if not conn: return
@@ -23,7 +23,7 @@ def save_diet_record(food_name, calories, protein, fat, carbs, meal_type="其他
         cur = conn.cursor()
         # SQL 語法現在多了一個 %s 給 meal_type
         query = """
-        INSERT INTO diet_logs (food_name, calories, protein, fat, carbs, meal_type, record_date)
+        INSERT INTO diet_logs (food_name, calories, protein, fat, carbs, meal_type, created_at)
         VALUES (%s, %s, %s, %s, %s, %s, CURRENT_DATE);
         """
         cur.execute(query, (food_name, calories, protein, fat, carbs, meal_type))
@@ -42,7 +42,12 @@ def get_today_records():
         conn = get_connection()
         cur = conn.cursor(cursor_factory=RealDictCursor)
         # 修正：如果你的 created_at 是時區相關，這行最穩
-        sql = "SELECT * FROM diet_logs WHERE created_at >= CURRENT_DATE ORDER BY created_at DESC"
+        sql = """
+                SELECT id, food_name, calories, protein, fat, carbs, meal_type 
+                FROM diet_logs 
+                WHERE created_at = CURRENT_DATE 
+                ORDER BY id DESC; 
+                """
         cur.execute(sql)
         rows = cur.fetchall()
         cur.close()
@@ -68,12 +73,17 @@ def get_today_summary():
                 SUM(fat) as total_fat, 
                 SUM(carbs) as total_carbs 
             FROM diet_logs 
-            WHERE created_at >= CURRENT_DATE
+            WHERE record_date = CURRENT_DATE
         """
         cur.execute(sql)
         row = cur.fetchone()
-        if row and row['total_cal']: # 確保不是 None
-            summary = row
+        if row and row['total_cal'] is not None:
+            summary = {
+                "total_cal": row['total_cal'],
+                "total_protein": row['total_protein'],
+                "total_fat": row['total_fat'],
+                "total_carbs": row['total_carbs']
+            }
         cur.close()
     except Exception as e:
         print(f"❌ 統計讀取失敗: {e}")
