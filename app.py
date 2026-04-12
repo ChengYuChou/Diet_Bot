@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 from db_manager import save_diet_record, get_today_records, delete_record, get_setting, update_setting, save_exercise_record, get_today_exercise
 
-st.set_page_config(page_title="資管飲食助手", layout="wide")
+st.set_page_config(page_title="飲食管理系統", layout="wide")
 st.title("🥗 飲食紀錄管理系統")
 
 initial_goal = int(get_setting('daily_calorie_goal', 2000))
@@ -159,6 +159,8 @@ if not df.empty:
         st.plotly_chart(fig_meals, use_container_width=True)
 
 with tab3:
+    st.subheader("新增運動消耗")
+
     burned_calories = get_today_exercise()
     net_calories = total_calories - burned_calories
 
@@ -168,3 +170,29 @@ with tab3:
     m2.metric("運動消耗", f"{burned_calories} kcal")
     m3.metric("淨熱量", f"{net_calories} kcal")
     m4.metric("剩餘預算", f"{new_goal - net_calories} kcal")
+
+    col_ex1, col_ex2 = st.columns(2)
+
+    with col_ex1:
+        ex_name = st.text_input("運動項目", placeholder="例如：慢跑、重訓、游泳")
+        ex_dur = st.number_input("持續時間（分鐘）", min_value=0, step=5)
+
+    with col_ex2:
+        ex_burn = st.number_input("消耗熱量（kcal）", min_value=0, step=10)
+        st.caption("💡 提示：一般慢跑 30 分鐘約消耗 200-300 kcal")
+    
+    if st.button("儲存運動記錄", use_container_width=True):
+        if ex_burn and ex_dur > 0:
+            save_exercise_record(ex_name, ex_burn, ex_dur)
+            st.success(f"✅ 已成功紀錄：{ex_name}，消耗 {ex_burn} kcal！")
+            st.rerun()
+        elif not ex_name:
+            st.error("請輸入運動項目名稱！")
+        else:
+            st.warning("請輸入有效的消耗熱量。")
+
+    st.divider()
+
+    st.subheader("今日運動明細")
+    burned_calories = get_today_exercise()
+    st.info(f"今日累計運動消耗：**{burned_calories}** kcal")
