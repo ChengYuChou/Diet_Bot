@@ -111,3 +111,63 @@ def delete_record(record_id):
         print(f"❌ 刪除失敗: {e}")
     finally:
         conn.close()
+
+def get_setting(key, default_value):
+    """從資料庫讀取設定值"""
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT value FROM user_settings WHERE key = %s", (key,))
+        row = cur.fetchone()
+        # 如果有資料就回傳，沒有就回傳預設值
+        return row[0] if row else default_value
+    except Exception as e:
+        print(f"❌ 讀取設定失敗: {e}")
+        return default_value
+    finally:
+        conn.close()
+
+def update_setting(key, value):
+    """更新或插入設定值 (Upsert)"""
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        # 使用 ON CONFLICT 來處理：如果 key 已存在就更新，不存在就插入
+        query = """
+        INSERT INTO user_settings (key, value) VALUES (%s, %s)
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+        """
+        cur.execute(query, (key, str(value)))
+        conn.commit()
+    except Exception as e:
+        print(f"❌ 更新設定失敗: {e}")
+    finally:
+        conn.close()
+def save_exercise_record(name, calories, duration):
+    """存入運動紀錄"""
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        query = """
+        INSERT INTO exercise_logs (exercise_name, calories_burned, duration_min)
+        VALUES (%s, %s, %s);
+        """
+        cur.execute(query, (name, calories, duration))
+        conn.commit()
+    except Exception as e:
+        print(f"❌ 運動紀錄儲存失敗: {e}")
+    finally:
+        conn.close()
+
+def get_today_exercise():
+    """讀取今日運動總消耗"""
+    conn = get_connection()
+    total = 0
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT SUM(calories_burned) FROM exercise_logs WHERE record_date = CURRENT_DATE")
+        row = cur.fetchone()
+        total = row[0] if row[0] else 0
+    finally:
+        conn.close()
+    return total

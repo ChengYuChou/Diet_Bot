@@ -1,30 +1,44 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from db_manager import save_diet_record, get_today_records, delete_record
+from db_manager import save_diet_record, get_today_records, delete_record, get_setting, update_setting, save_exercise_record, get_today_exercise
 
 st.set_page_config(page_title="資管飲食助手", layout="wide")
 st.title("🥗 飲食紀錄管理系統")
 
+initial_goal = int(get_setting('daily_calorie_goal', 2000))
+
+
 with st.sidebar:
     st.header("⚙️ 個人設定")
     # 讓使用者自訂每日目標，並存入 Session State 中
-    daily_goal = st.number_input(
+    new_goal = st.number_input(
         "設定每日熱量目標 (kcal)", 
         min_value=1200, 
         max_value=4000, 
-        value=2000, 
+        value=initial_goal,
         step=50
     )
+
+    if new_goal != initial_goal:
+        update_setting('daily_calorie_goal', new_goal)
+        st.toast(f"✅ 目標已更新為 {new_goal} kcal")
     
     st.divider()
-    st.info(f"💡 目前設定：{daily_goal} kcal / 天")
-    
+    st.info(f"💡 目前設定：{new_goal} kcal / 天")
+
     st.subheader("⚖️ 體重追蹤")
     current_weight = st.number_input("今日體重 (kg)", min_value=30.0, max_value=200.0, value=70.0, step=0.1)
     if st.button("記錄體重"):
         # 這裡我們先用 success 提示，未來會開新資料表存這筆數據
         st.success(f"已紀錄：{current_weight} kg")
+    
+    st.subheader("⚖️ BMI 計算器")
+    height = st.number_input("身高 (cm)", value=170.0)
+    weight = st.number_input("體重 (kg)", value=65.0)
+    if height > 0:
+        bmi = weight / ((height/100)**2)
+        st.write(f"您的 BMI 為: **{bmi:.1f}**")
 
 records = get_today_records()
 df = pd.DataFrame(records)
@@ -34,10 +48,10 @@ if not df.empty:
     total_protein = df['protein'].sum()
     total_fat = df['fat'].sum()
     total_carbs = df['carbs'].sum()
-    remaining_calories = daily_goal - total_calories
+    remaining_calories = new_goal - total_calories
 else:
     total_calories = total_protein = total_fat = total_carbs = 0
-    remaining_calories = daily_goal
+    remaining_calories = new_goal
 
 st.subheader("🔥 今日營養概覽")
 m1, m2, m3, m4 = st.columns(4)
@@ -47,14 +61,16 @@ m3.metric("蛋白質", f"{total_protein} g")
 m4.metric("碳水化合物", f"{total_carbs} g")
 
 # 進度條
-progress_pct = min(total_calories / daily_goal, 1.0)
+progress_pct = min(total_calories / new_goal, 1.0)
 st.progress(progress_pct, text=f"今日熱量進度: {int(progress_pct*100)}%")
 
-if total_calories > daily_goal:
-    st.warning(f"⚠️ 警告：已超過每日熱量目標 {total_calories - daily_goal} kcal！")
+if total_calories > new_goal:
+    st.warning(f"⚠️ 警告：已超過每日熱量目標 {total_calories - new_goal} kcal！")
+elif remaining_calories < 300 and remaining_calories > 0:
+    st.info("💡 剩餘額度不多了，晚餐建議吃清淡一點喔！")
 
 # 使用分頁系統：將「新增紀錄」與「歷史管理」分開
-tab1, tab2 = st.tabs(["➕ 新增飲食紀錄", "📋 今日紀錄管理"])
+tab1, tab2, tab3 = st.tabs(["➕ 新增飲食紀錄", "📋 今日紀錄管理", "⚽️運動記錄"])
 
 # --- Tab 1: 新增紀錄 ---
 with tab1:
@@ -141,3 +157,14 @@ if not df.empty:
                           labels={'meal_type': '餐別', 'calories': '總熱量'},
                           color='meal_type')
         st.plotly_chart(fig_meals, use_container_width=True)
+
+with tab3:
+    burned_calories = get_today_exercise()
+    net_calories = total_calories - burned_calories
+
+    st.subheader("🔥 今日營養概覽")
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("已攝取熱量", f"{total_calories} kcal")
+    m2.metric("運動消耗", f"{burned_calories} kcal")
+    m3.metric("淨熱量", f"{net_calories} kcal")
+    m4.metric("剩餘預算", f"{new_goal - net_calories} kcal")
