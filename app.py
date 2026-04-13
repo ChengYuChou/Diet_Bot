@@ -119,13 +119,11 @@ with tab2:
     if records:
         df = pd.DataFrame(records)
         
-        # 顯示資料表 (排除 ID 不顯示在主表，讓畫面整潔)
         display_df = df[['meal_type', 'food_name', 'calories', 'protein', 'fat', 'carbs']]
         st.dataframe(display_df, use_container_width=True)
         
         st.divider()
         
-        # 實作刪除功能
         st.subheader("🗑️ 刪除錯誤紀錄")
         # 讓使用者透過 ID 選擇要刪除哪一筆
         delete_id = st.selectbox(
