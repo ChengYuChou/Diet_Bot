@@ -1,49 +1,38 @@
 import os
-import google.generativeai as genai
+from google import genai
 from dotenv import load_dotenv
 
-# 1. 載入環境變數
+# 1. 初始化環境與 Client
 load_dotenv()
 api_key = os.getenv("GEMINI_API_KEY")
+client = genai.Client(api_key=api_key)
 
-if not api_key:
-    print("❌ 錯誤：在 .env 中找不到 GEMINI_API_KEY")
-    exit()
-
-genai.configure(api_key=api_key)
-
-# 2. 根據你剛才的清單，挑選三個最有可能成功的路徑
-# 在 v1beta 模式下，必須使用 'models/' 前綴
-test_targets = [
-    'models/gemini-1.5-flash',
-    'models/gemini-2.0-flash',
-    'models/gemini-1.5-pro'
-]
-
-print(f"=== 🔍 Gemini API 深度診斷 (Python 3.9) ===")
-
-for target in test_targets:
-    print(f"\n📡 正在測試模型：{target}")
-    try:
-        # 建立模型實例
-        model = genai.GenerativeModel(model_name=target)
+def start_chat():
+    print("=== 🤖 Gemini 3 互動模式 (輸入 'quit' 結束) ===")
+    
+    # 建立一個簡易的問答循環
+    while True:
+        user_input = input("\n👤 你：")
         
-        # 發送一個極簡的測試請求
-        response = model.generate_content("Hi", generation_config={"max_output_tokens": 10})
-        
-        print(f"✅ 測試成功！")
-        print(f"🤖 AI 回應：{response.text.strip()}")
-        
-    except Exception as e:
-        error_msg = str(e)
-        if "404" in error_msg:
-            print(f"❌ 錯誤 404：伺服器找不到這個路徑。請檢查模型名稱是否精確。")
-        elif "429" in error_msg:
-            print(f"❌ 錯誤 429：配額不足 (Limit: 0)。這通常是 Google 帳號或專案權限問題。")
-        else:
-            print(f"❌ 發生其他錯誤：\n{error_msg}")
+        if user_input.lower() in ['quit', 'exit', '離開', 'c']:
+            print("👋 下次見！")
+            break
+            
+        try:
+            # 2. 發送請求
+            response = client.models.generate_content(
+                model="gemini-3-flash-preview",
+                contents=[
+        "你是一位專業的台灣營養師。請根據使用者的描述，估算食物的熱量（大卡）與三大營養素（蛋白質、脂肪、碳水）。",
+        "使用者說：『我剛才吃了一碗中份的排骨便當，有一塊排骨和三個配菜。』"
+    ]
+            )
+            
+            # 3. 取得回應 (處理可能出現的 thought_signature)
+            print(f"🤖 Gemini：{response.text}")
+            
+        except Exception as e:
+            print(f"❌ 發生錯誤：{e}")
 
-print("\n" + "="*40)
-print("💡 資管系 Debug 指南：")
-print("1. 如果全部都 404 -> 代表你的 SDK 強制要求不同的路徑格式。")
-print("2. 如果全部都 429 -> 代表你需要去 AI Studio 建立一個『全新專案』的 Key。")
+if __name__ == "__main__":
+    start_chat()

@@ -1,7 +1,13 @@
 import streamlit as st
 import pandas as pd
+import os
+import json
+from google import genai
 import plotly.express as px
 from db_manager import save_diet_record, get_today_records, delete_record, get_setting, update_setting, save_exercise_record, get_today_exercise
+
+api_key = os.getenv("GEMINI_API_KEY")
+client = genai.Client(api_key=api_key)
 
 st.set_page_config(page_title="飲食管理系統", layout="wide")
 st.title("🥗 飲食紀錄管理系統")
@@ -196,3 +202,80 @@ with tab3:
     st.subheader("今日運動明細")
     burned_calories = get_today_exercise()
     st.info(f"今日累計運動消耗：**{burned_calories}** kcal")
+
+with st.container(border=True):
+    st.subheader("🍽️ 新增飲食紀錄")
+    
+    # 使用者輸入區
+    user_input = st.text_input(
+        "今天吃了什麼？", 
+        placeholder="例如：中午吃了一個排骨便當，配一杯半糖紅奶茶"
+    )
+    
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        submit_btn = st.button("開始分析", type="primary")
+
+if submit_btn:
+    if not user_input:
+        st.warning("請先輸入內容喔！")
+    else:
+        with st.spinner("正在為您計算多項食物營養..."):
+            try:
+                # 1. 強化 Prompt：要求 AI 先分析單項再加總
+                prompt = f"""
+                你是一位專業營養師。請分析以下飲食內容中的每一項食物，最後回傳一個總和的 JSON 格式。
+                要求回傳格式（嚴格遵守）：
+                {{"food_item": "食物清單簡述", "calories": 總熱量數字, "protein": 總蛋白質數字, "fat": 總脂肪數字, "carbs": 總碳水數字}}
+                
+                飲食內容：{user_input}
+                """
+
+                response = client.models.generate_content(
+                    model="gemini-3-flash-preview",
+                    contents=prompt,
+                    config={'response_mime_type': 'application/json'}
+                )
+
+                # 2. 清理回應字串 (防止 AI 帶入 Markdown 標籤)
+                raw_text = response.text.strip()
+                if raw_text.startswith("```"):
+                    raw_text = raw_text.split("```")[1]
+                    if raw_text.startswith("json"):
+                        raw_text = raw_text[4:]
+                
+                diet_data = json.loads(raw_text)
+
+                # 3. 顯示分析結果
+                st.markdown("---")
+                st.success(f"✅ 已完成多項食物分析")
+                
+                # 使用美觀的卡片呈現
+                with st.container(border=True):
+                    st.write(f"🔍 **分析清單**：{diet_data.get('food_item', '未命名')}")
+                    c1, c2, c3, c4 = st.columns(4)
+                    c1.metric("總熱量", f"{diet_data.get('calories', 0)} kcal")
+                    c2.metric("蛋白質", f"{diet_data.get('protein', 0)} g")
+                    c3.metric("脂肪", f"{diet_data.get('fat', 0)} g")
+                    c4.metric("碳水", f"{diet_data.get('carbs', 0)} g")
+                
+                # 4. 一鍵儲存按鈕
+                if st.button("確認並存入資料庫", key="save_ai_btn"):
+                    save_diet_record(
+                        diet_data['food_item'], 
+                        diet_data['calories'], 
+                        diet_data['protein'], 
+                        diet_data['fat'], 
+                        diet_data['carbs'], 
+                        "其他"
+                    )
+                    st.toast("🚀 紀錄已存入資料庫！")
+                    st.rerun()
+
+            except json.JSONDecodeError:
+                st.error("❌ AI 回傳格式異常，請再試一次。")
+                st.expander("查看原始回應").write(response.text) # 方便 Debug
+            except Exception as e:
+                st.error(f"❌ 發生非預期錯誤：{e}")
+
+st.caption("本系統採用 Gemini 3 Flash Preview 模型進行分析")
