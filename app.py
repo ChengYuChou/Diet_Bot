@@ -201,26 +201,31 @@ with tab3:
     burned_calories = get_today_exercise()
     st.info(f"今日累計運動消耗：**{burned_calories}** kcal")
 
+import json
+
+# --- AI 分析與存檔區塊 ---
 with st.container(border=True):
-    st.subheader("🍽️ 新增飲食紀錄")
+    st.subheader("AI 飲食自動分析")
     
     # 使用者輸入區
     user_input = st.text_input(
-        "今天吃了什麼？", 
-        placeholder="例如：中午吃了一個排骨便當，配一杯半糖紅奶茶"
+        "找不到飲養成分嗎？問問AI吧！", 
+        key="ai_input",
+        placeholder="例如：一份炒米粉、一顆蘋果跟兩片甜不辣"
     )
     
-    col1, col2 = st.columns([1, 4])
-    with col1:
-        submit_btn = st.button("開始分析", type="primary")
+    col_btn1, col_btn2 = st.columns([1, 4])
+    with col_btn1:
+        # 按下開始分析，只負責向 AI 拿資料
+        analyze_btn = st.button("開始分析", type="primary")
 
-if submit_btn:
+# 1. 觸發 AI 分析邏輯
+if analyze_btn:
     if not user_input:
         st.warning("請先輸入內容喔！")
     else:
         with st.spinner("正在為您計算多項食物營養..."):
             try:
-                # 1. 強化 Prompt：要求 AI 先分析單項再加總
                 prompt = f"""
                 你是一位專業營養師。請分析以下飲食內容中的每一項食物，最後回傳一個總和的 JSON 格式。
                 要求回傳格式（嚴格遵守）：
@@ -235,45 +240,54 @@ if submit_btn:
                     config={'response_mime_type': 'application/json'}
                 )
 
-                # 2. 清理回應字串 (防止 AI 帶入 Markdown 標籤)
+                # 解析並存入 session_state 暫存
                 raw_text = response.text.strip()
-                if raw_text.startswith("```"):
-                    raw_text = raw_text.split("```")[1]
-                    if raw_text.startswith("json"):
-                        raw_text = raw_text[4:]
+                # 簡單清理可能的 Markdown 標籤
+                if "```" in raw_text:
+                    raw_text = raw_text.split("```")[1].replace("json", "").strip()
                 
-                diet_data = json.loads(raw_text)
+                # 將結果存入暫存，防止按鈕刷新後消失
+                st.session_state.ai_diet_data = json.loads(raw_text)
+                st.success("✅ AI 分析完成，請確認下方數據：")
 
-                # 3. 顯示分析結果
-                st.markdown("---")
-                st.success(f"✅ 已完成多項食物分析")
-                
-                # 使用美觀的卡片呈現
-                with st.container(border=True):
-                    st.write(f"🔍 **分析清單**：{diet_data.get('food_item', '未命名')}")
-                    c1, c2, c3, c4 = st.columns(4)
-                    c1.metric("總熱量", f"{diet_data.get('calories', 0)} kcal")
-                    c2.metric("蛋白質", f"{diet_data.get('protein', 0)} g")
-                    c3.metric("脂肪", f"{diet_data.get('fat', 0)} g")
-                    c4.metric("碳水", f"{diet_data.get('carbs', 0)} g")
-                
-                # 4. 一鍵儲存按鈕
-                if st.button("確認並存入資料庫", key="save_ai_btn"):
-                    save_diet_record(
-                        diet_data['food_item'], 
-                        diet_data['calories'], 
-                        diet_data['protein'], 
-                        diet_data['fat'], 
-                        diet_data['carbs'], 
-                        "其他"
-                    )
-                    st.toast("🚀 紀錄已存入資料庫！")
-                    st.rerun()
-
-            except json.JSONDecodeError:
-                st.error("❌ AI 回傳格式異常，請再試一次。")
-                st.expander("查看原始回應").write(response.text) # 方便 Debug
             except Exception as e:
-                st.error(f"❌ 發生非預期錯誤：{e}")
+                st.error(f"❌ 分析失敗：{e}")
+
+# 2. 顯示預覽結果與「確認存檔」按鈕
+# 判斷暫存區是否有資料，有的話才顯示預覽卡片
+if "ai_diet_data" in st.session_state:
+    diet_data = st.session_state.ai_diet_data
+    
+    with st.container(border=True):
+        st.markdown(f"🔍 **分析結果預覽**：{diet_data.get('food_item', '未命名')}")
+        
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("總熱量", f"{diet_data.get('calories', 0)} kcal")
+        c2.metric("蛋白質", f"{diet_data.get('protein', 0)} g")
+        c3.metric("脂肪", f"{diet_data.get('fat', 0)} g")
+        c4.metric("碳水", f"{diet_data.get('carbs', 0)} g")
+        
+        # 讓使用者在存檔前可以自選餐別
+        meal_choice = st.selectbox("確認這筆紀錄的餐別：", ["早餐", "午餐", "晚餐", "點心", "其他"], index=0)
+
+        # 真正的存檔按鈕
+        if st.button("確認正確，存入資料庫", use_container_width=True):
+            save_diet_record(
+                diet_data['food_item'], 
+                diet_data['calories'], 
+                diet_data['protein'], 
+                diet_data['fat'], 
+                diet_data['carbs'], 
+                meal_choice
+            )
+            st.toast(f"🚀 紀錄已存入 {meal_choice}！")
+            
+            # 存完檔後清除暫存資料，讓介面變回乾淨狀態
+            del st.session_state.ai_diet_data
+            st.rerun()
+            
+    if st.button("取消分析並清除", key="cancel_ai"):
+        del st.session_state.ai_diet_data
+        st.rerun()
 
 st.caption("本系統採用 Gemini 3 Flash Preview 模型進行分析")
