@@ -12,3 +12,7 @@ __pycache__/
 
 # 資料庫實體資料：如果你有把 PostgreSQL 的資料對接到本地資料夾
 pgdata/
+
+# 忽略所有資料庫檔案
+*.db
+*.sqlite3

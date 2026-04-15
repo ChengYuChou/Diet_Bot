@@ -1,27 +1,35 @@
 import os
 import psycopg2
+import sqlite3
+import pandas as pd
+from datetime import datetime, timedelta
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
 
 load_dotenv()
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "diet_db.db")
+
 def get_connection():
-    # 這裡確保抓到 .env 的設定，若無則用你的預設值
-    return psycopg2.connect(
-        host=os.getenv("DB_HOST", "localhost"),
-        database=os.getenv("DB_NAME", "diet_db"),
-        user=os.getenv("DB_USER", "myuser"),
-        password=os.getenv("DB_PASS"),
-        port=os.getenv("DB_PORT", "5432")
-    )
+    try:
+        return psycopg2.connect(
+            host=os.getenv("DB_HOST", "localhost"),
+            database=os.getenv("DB_NAME", "diet_db"),
+            user=os.getenv("DB_USER", "myuser"),
+            password=os.getenv("DB_PASS"),
+            port=os.getenv("DB_PORT", "5432")
+        )
+    except Exception as e:
+        print(f"❌ 資料庫連線失敗: {e}")
+        return None
 
 def save_diet_record(food_name, calories, protein, fat, carbs, meal_type):
-    """存入紀錄，並增加 meal_type 選項"""
     conn = get_connection()
     if not conn: return
     try:
         cur = conn.cursor()
-        # SQL 語法現在多了一個 %s 給 meal_type
+        # 注意：如果資料庫欄位設有 DEFAULT CURRENT_DATE，就不需要手動傳 created_at
         query = """
         INSERT INTO diet_logs (food_name, calories, protein, fat, carbs, meal_type, created_at)
         VALUES (%s, %s, %s, %s, %s, %s, CURRENT_DATE);
@@ -171,3 +179,52 @@ def get_today_exercise():
     finally:
         conn.close()
     return total
+
+def get_weekly_summary():
+    """撈取過去七天熱量趨勢 (PostgreSQL 版)"""
+    conn = get_connection()
+    if not conn: return pd.DataFrame()
+    
+    # PostgreSQL 的時間語法與 SQLite 不同
+    # 我們使用 CURRENT_DATE - INTERVAL '7 days'
+    query = """
+    SELECT created_at::date as diet_date, SUM(calories) as daily_total 
+    FROM diet_logs
+    WHERE created_at >= CURRENT_DATE - INTERVAL '7 days'
+    GROUP BY created_at::date
+    ORDER BY diet_date ASC;
+    """
+    
+    try:
+        # PostgreSQL 使用 read_sql，且不需要 params
+        df = pd.read_sql_query(query, conn)
+        return df
+    except Exception as e:
+        print(f"❌ 趨勢資料讀取失敗：{e}")
+        return pd.DataFrame()
+    finally:
+        conn.close()
+
+def get_weekly_nutrition():
+    """撈取過去七天營養比例 (PostgreSQL 版)"""
+    conn = get_connection()
+    if not conn: return pd.DataFrame()
+    
+    # PostgreSQL 使用 COALESCE 代替 IFNULL
+    query = """
+    SELECT 
+        COALESCE(SUM(protein), 0) as total_protein, 
+        COALESCE(SUM(fat), 0) as total_fat, 
+        COALESCE(SUM(carbs), 0) as total_carbs 
+    FROM diet_logs
+    WHERE created_at >= CURRENT_DATE - INTERVAL '7 days';
+    """
+    
+    try:
+        df = pd.read_sql_query(query, conn)
+        return df
+    except Exception as e:
+        print(f"❌ 營養比例讀取失敗: {e}")
+        return pd.DataFrame()
+    finally:
+        conn.close()

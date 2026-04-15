@@ -2,12 +2,18 @@ import streamlit as st
 import pandas as pd
 import os
 import json
+import sqlite3
 from google import genai
 import plotly.express as px
-from db_manager import save_diet_record, get_today_records, delete_record, get_setting, update_setting, save_exercise_record, get_today_exercise
+from db_manager import save_diet_record, get_today_records, delete_record, get_setting, update_setting, save_exercise_record, get_today_exercise, get_weekly_summary, get_weekly_nutrition
 
 api_key = os.getenv("GEMINI_API_KEY")
 client = genai.Client(api_key=api_key)
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "diet_system.db")
+
+
 
 st.set_page_config(page_title="飲食管理系統", layout="wide")
 st.title("🥗 飲食紀錄管理系統")
@@ -291,3 +297,81 @@ if "ai_diet_data" in st.session_state:
         st.rerun()
 
 st.caption("本系統採用 Gemini 3 Flash Preview 模型進行分析")
+
+# 在 app.py 的圖表區塊
+st.divider()
+st.subheader("📈 過去七天熱量趨勢")
+
+
+# 呼叫 db_manager 裡的函數
+weekly_df = get_weekly_summary()
+
+if not weekly_df.empty:
+ 
+    weekly_df.columns = ['diet_date', 'daily_total']
+    
+    fig_trend = px.line(
+        weekly_df, 
+        x='diet_date', 
+        y='daily_total', 
+        markers=True,
+        title="過去七天熱量趨勢"
+    )
+    st.plotly_chart(fig_trend)
+else:
+    st.info("尚無趨勢數據。")
+
+st.divider()
+st.subheader("🍕 過去七天營養比例")
+
+nutrition_df = get_weekly_nutrition()
+
+st.write(nutrition_df)
+
+# 1. 營養圓餅圖部分 (確保使用我們在 db_manager 改好的 get_weekly_nutrition)
+nutrition_df = get_weekly_nutrition()
+
+if not nutrition_df.empty:
+    # PostgreSQL 的欄位名稱通常會維持小寫
+    p = nutrition_df['total_protein'].iloc[0]
+    f = nutrition_df['total_fat'].iloc[0]
+    c = nutrition_df['total_carbs'].iloc[0]
+    
+    total_weight = p + f + c
+    
+    if total_weight > 0:
+        pie_data = pd.DataFrame({
+            "營養素": ["蛋白質", "脂肪", "碳水化合物"],
+            "重量 (g)": [float(p), float(f), float(c)] # 轉為 float 確保 Plotly 讀取
+        })
+        
+        fig_pie = px.pie(
+            pie_data, 
+            values='重量 (g)', 
+            names='營養素', 
+            hole=0.4,
+            color_discrete_sequence=px.colors.qualitative.Set3
+        )
+        st.plotly_chart(fig_pie, use_container_width=True)
+    else:
+        st.info("💡 過去七天尚無營養數據。")
+else:
+    st.error("無法從 PostgreSQL 讀取數據，請檢查資料庫連線。")
+
+# 2. 原始資料檢查部分 (也要改成 PostgreSQL 連線)
+st.divider()
+st.subheader("🔍 資料庫同步狀態檢查")
+try:
+    # 使用我們在 db_manager 定義好的 get_connection
+    from db_manager import get_connection 
+    conn = get_connection()
+    
+    if conn:
+        # 測試抓取最後 5 筆
+        raw_check = pd.read_sql_query("SELECT * FROM diet_logs ORDER BY id DESC LIMIT 20", conn)
+        st.write("最新的 20 筆原始資料：", raw_check)
+        conn.close()
+    else:
+        st.error("無法建立 PostgreSQL 連線，請檢查 .env 設定。")
+except Exception as e:
+    st.error(f"查詢原始資料時出錯：{e}")
