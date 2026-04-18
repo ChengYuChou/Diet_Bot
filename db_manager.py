@@ -228,3 +228,17 @@ def get_weekly_nutrition():
         return pd.DataFrame()
     finally:
         conn.close()
+
+def delete_record(record_id):
+    conn = get_connection() # 確保這是連到 PostgreSQL
+    if not conn: return
+    try:
+        cur = conn.cursor()
+        # PostgreSQL 使用 %s 作為佔位符
+        cur.execute("DELETE FROM diet_logs WHERE id = %s", (record_id,))
+        conn.commit() # <--- 沒這行，資料就不會真的消失
+        cur.close()
+    except Exception as e:
+        print(f"刪除失敗: {e}")
+    finally:
+        conn.close()

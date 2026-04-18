@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import os
 import json
-import sqlite3
 from google import genai
 import plotly.express as px
 from db_manager import save_diet_record, get_today_records, delete_record, get_setting, update_setting, save_exercise_record, get_today_exercise, get_weekly_summary, get_weekly_nutrition
@@ -368,10 +367,42 @@ try:
     
     if conn:
         # 測試抓取最後 5 筆
-        raw_check = pd.read_sql_query("SELECT * FROM diet_logs ORDER BY id DESC LIMIT 20", conn)
-        st.write("最新的 20 筆原始資料：", raw_check)
+        raw_check = pd.read_sql_query("SELECT * FROM diet_logs ORDER BY id DESC LIMIT 10", conn)
+        st.write("最新的 10 筆原始資料：", raw_check)
         conn.close()
     else:
         st.error("無法建立 PostgreSQL 連線，請檢查 .env 設定。")
 except Exception as e:
     st.error(f"查詢原始資料時出錯：{e}")
+
+st.divider()
+st.subheader("🗓️ 今日飲食明細管理")
+
+# 從資料庫撈取今日資料
+today_items = get_today_records()
+
+if today_items:
+    # 建立標題列
+    h_col1, h_col2, h_col3, h_col4 = st.columns([3, 2, 2, 1])
+    h_col1.caption("食物名稱")
+    h_col2.caption("熱量 (kcal)")
+    h_col3.caption("三大營養素 (P/F/C)")
+    h_col4.caption("操作")
+
+    for item in today_items:
+        with st.container():
+            col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
+            
+            # 顯示基本資訊
+            col1.write(f"**{item['food_name']}** ({item['meal_type']})")
+            col2.write(f"{item['calories']} kcal")
+            col3.write(f"{item['protein']}/{item['fat']}/{item['carbs']}")
+            
+            # 刪除按鈕
+            # 使用 key=f"del_{item['id']}" 確保每個按鈕的 ID 唯一
+            if col4.button("🗑️", key=f"del_{item['id']}"):
+                delete_record(item['id'])
+                st.success(f"已刪除 {item['food_name']}")
+                st.rerun() # 立即重新整理頁面，讓圖表和清單同步更新
+else:
+    st.info("今天還沒有任何飲食紀錄，快去上方輸入吧！")
