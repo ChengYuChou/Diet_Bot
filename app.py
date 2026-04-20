@@ -19,7 +19,7 @@ st.title("🥗 飲食紀錄管理系統")
 
 initial_goal = int(get_setting('daily_calorie_goal', 2000))
 
-
+# 側邊欄功能
 with st.sidebar:
     st.header("⚙️ 個人設定")
     # 讓使用者自訂每日目標，並存入 Session State 中
@@ -50,6 +50,7 @@ with st.sidebar:
     if height > 0:
         bmi = weight / ((height/100)**2)
         st.write(f"您的 BMI 為: **{bmi:.1f}**")
+#--------------------------------------------------------------------------------------------------------------------------------------------------------
 
 records = get_today_records()
 df = pd.DataFrame(records)
@@ -81,7 +82,7 @@ elif remaining_calories < 300 and remaining_calories > 0:
     st.info("💡 剩餘額度不多了，晚餐建議吃清淡一點喔！")
 
 # 使用分頁系統：將「新增紀錄」與「歷史管理」分開
-tab1, tab2, tab3 = st.tabs(["➕ 新增飲食紀錄", "📋 今日紀錄管理", "⚽️運動記錄"])
+tab1, tab2, tab3, tab4 = st.tabs(["➕ 新增飲食紀錄", "📋 今日紀錄管理", "⚽️運動記錄", "📊圖表分析"])
 
 # --- Tab 1: 新增紀錄 ---
 with tab1:
@@ -116,6 +117,96 @@ with tab1:
         else:
             st.error("請輸入食物名稱！")
 
+    # --- AI 分析與存檔區塊 ---
+    with st.container(border=True):
+        st.subheader("AI 飲食自動分析")
+        
+        # 使用者輸入區
+        user_input = st.text_input(
+            "找不到飲養成分嗎？問問AI吧！", 
+            key="ai_input",
+            placeholder="例如：一份炒米粉、一顆蘋果跟兩片甜不辣"
+        )
+        
+        col_btn1, col_btn2 = st.columns([1, 4])
+        with col_btn1:
+            # 按下開始分析，只負責向 AI 拿資料
+            analyze_btn = st.button("開始分析", type="primary")
+
+    # 1. 觸發 AI 分析邏輯
+    if analyze_btn:
+        if not user_input:
+            st.warning("請先輸入內容喔！")
+        else:
+            with st.spinner("正在為您計算多項食物營養..."):
+                try:
+                    prompt = f"""
+                    你是一位專業營養師。請分析以下飲食內容中的每一項食物，最後回傳一個總和的 JSON 格式。
+                    要求回傳格式（嚴格遵守）：
+                    {{"food_item": "食物清單簡述", "calories": 總熱量數字, "protein": 總蛋白質數字, "fat": 總脂肪數字, "carbs": 總碳水數字}}
+                    
+                    飲食內容：{user_input}
+                    """
+
+                    response = client.models.generate_content(
+                        model="gemini-3-flash-preview",
+                        contents=prompt,
+                        config={'response_mime_type': 'application/json'}
+                    )
+
+                    # 解析並存入 session_state 暫存
+                    raw_text = response.text.strip()
+                    # 簡單清理可能的 Markdown 標籤
+                    if "```" in raw_text:
+                        raw_text = raw_text.split("```")[1].replace("json", "").strip()
+                    
+                    # 將結果存入暫存，防止按鈕刷新後消失
+                    st.session_state.ai_diet_data = json.loads(raw_text)
+                    st.success("✅ AI 分析完成，請確認下方數據：")
+
+                except Exception as e:
+                    st.error(f"❌ 分析失敗：{e}")
+
+    # 2. 顯示預覽結果與「確認存檔」按鈕
+    # 判斷暫存區是否有資料，有的話才顯示預覽卡片
+    if "ai_diet_data" in st.session_state:
+        diet_data = st.session_state.ai_diet_data
+        
+        with st.container(border=True):
+            st.markdown(f"🔍 **分析結果預覽**：{diet_data.get('food_item', '未命名')}")
+            
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("總熱量", f"{diet_data.get('calories', 0)} kcal")
+            c2.metric("蛋白質", f"{diet_data.get('protein', 0)} g")
+            c3.metric("脂肪", f"{diet_data.get('fat', 0)} g")
+            c4.metric("碳水", f"{diet_data.get('carbs', 0)} g")
+            
+            # 讓使用者在存檔前可以自選餐別
+            meal_choice = st.selectbox("確認這筆紀錄的餐別：", ["早餐", "午餐", "晚餐", "點心", "其他"], index=0)
+
+            # 真正的存檔按鈕
+            if st.button("確認正確，存入資料庫", use_container_width=True):
+                save_diet_record(
+                    diet_data['food_item'], 
+                    diet_data['calories'], 
+                    diet_data['protein'], 
+                    diet_data['fat'], 
+                    diet_data['carbs'], 
+                    meal_choice
+                )
+                st.toast(f"🚀 紀錄已存入 {meal_choice}！")
+                
+                # 存完檔後清除暫存資料，讓介面變回乾淨狀態
+                del st.session_state.ai_diet_data
+                st.rerun()
+                
+        if st.button("取消分析並清除", key="cancel_ai"):
+            del st.session_state.ai_diet_data
+            st.rerun()
+
+    st.caption("本系統採用 Gemini 3 Flash Preview 模型進行分析")
+#--------------------------------------------------------------------------------------------------------------------------------------------------------
+
 # --- Tab 2: 紀錄管理 ---
 with tab2:
     st.subheader("今日飲食明細")
@@ -144,28 +235,78 @@ with tab2:
     else:
         st.info("今天還沒有任何紀錄喔，快去第一分頁新增吧！")
 
-if not df.empty:
     st.divider()
-    col_chart1, col_chart2 = st.columns(2)
-    
-    with col_chart1:
-        # 三大營養素圓餅圖 (原本有的)
-        nutrients_df = pd.DataFrame({
-            "營養素": ["蛋白質", "脂肪", "碳水"],
-            "重量": [total_protein, total_fat, total_carbs]
-        })
-        fig_nutrients = px.pie(nutrients_df, values='重量', names='營養素', title="三大營養素比例")
-        st.plotly_chart(fig_nutrients, use_container_width=True)
+    st.subheader("🔍 資料庫同步狀態檢查")
+    try:
+        # 使用我們在 db_manager 定義好的 get_connection
+        from db_manager import get_connection 
+        conn = get_connection()
+        
+        if conn:
+            # 測試抓取最後 5 筆
+            raw_check = pd.read_sql_query("SELECT * FROM diet_logs ORDER BY id DESC LIMIT 10", conn)
+            st.write("最新的 10 筆原始資料：", raw_check)
+            conn.close()
+        else:
+            st.error("無法建立 PostgreSQL 連線，請檢查 .env 設定。")
+    except Exception as e:
+        st.error(f"查詢原始資料時出錯：{e}")
 
-    with col_chart2:
-        # 新增：各餐熱量分佈圖
-        # 這裡會根據你昨天的 meal_type 自動分組
-        meal_stats = df.groupby('meal_type')['calories'].sum().reset_index()
-        fig_meals = px.bar(meal_stats, x='meal_type', y='calories', 
-                          title="各餐熱量分佈", 
-                          labels={'meal_type': '餐別', 'calories': '總熱量'},
-                          color='meal_type')
-        st.plotly_chart(fig_meals, use_container_width=True)
+    st.divider()
+    st.subheader("🗓️ 今日飲食明細管理")
+
+    # 從資料庫撈取今日資料
+    today_items = get_today_records()
+
+    if today_items:
+        # 建立標題列
+        h_col1, h_col2, h_col3, h_col4 = st.columns([3, 2, 2, 1])
+        h_col1.caption("食物名稱")
+        h_col2.caption("熱量 (kcal)")
+        h_col3.caption("三大營養素 (P/F/C)")
+        h_col4.caption("操作")
+
+        for item in today_items:
+            with st.container():
+                col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
+                
+                # 顯示基本資訊
+                col1.write(f"**{item['food_name']}** ({item['meal_type']})")
+                col2.write(f"{item['calories']} kcal")
+                col3.write(f"{item['protein']}/{item['fat']}/{item['carbs']}")
+                
+                # 刪除按鈕
+                # 使用 key=f"del_{item['id']}" 確保每個按鈕的 ID 唯一
+                if col4.button("🗑️", key=f"del_{item['id']}"):
+                    delete_record(item['id'])
+                    st.success(f"已刪除 {item['food_name']}")
+                    st.rerun() # 立即重新整理頁面，讓圖表和清單同步更新
+    else:
+        st.info("今天還沒有任何飲食紀錄，快去上方輸入吧！")   
+
+        if not df.empty:
+            st.divider()
+            col_chart1, col_chart2 = st.columns(2)
+            
+            with col_chart1:
+                # 三大營養素圓餅圖 (原本有的)
+                nutrients_df = pd.DataFrame({
+                    "營養素": ["蛋白質", "脂肪", "碳水"],
+                    "重量": [total_protein, total_fat, total_carbs]
+                })
+                fig_nutrients = px.pie(nutrients_df, values='重量', names='營養素', title="三大營養素比例")
+                st.plotly_chart(fig_nutrients, use_container_width=True)
+
+            with col_chart2:
+                # 新增：各餐熱量分佈圖
+                # 這裡會根據你昨天的 meal_type 自動分組
+                meal_stats = df.groupby('meal_type')['calories'].sum().reset_index()
+                fig_meals = px.bar(meal_stats, x='meal_type', y='calories', 
+                                title="各餐熱量分佈", 
+                                labels={'meal_type': '餐別', 'calories': '總熱量'},
+                                color='meal_type')
+                st.plotly_chart(fig_meals, use_container_width=True)
+#--------------------------------------------------------------------------------------------------------------------------------------------------------
 
 with tab3:
     st.subheader("新增運動消耗")
@@ -205,204 +346,67 @@ with tab3:
     st.subheader("今日運動明細")
     burned_calories = get_today_exercise()
     st.info(f"今日累計運動消耗：**{burned_calories}** kcal")
+#--------------------------------------------------------------------------------------------------------------------------------------------------------
 
-import json
+with tab4:
+    st.header("飲養分布圖")
+    st.divider()
+    st.subheader("📈 過去七天熱量趨勢")
 
-# --- AI 分析與存檔區塊 ---
-with st.container(border=True):
-    st.subheader("AI 飲食自動分析")
+
+    # 呼叫 db_manager 裡的函數
+    weekly_df = get_weekly_summary()
+
+    if not weekly_df.empty:
     
-    # 使用者輸入區
-    user_input = st.text_input(
-        "找不到飲養成分嗎？問問AI吧！", 
-        key="ai_input",
-        placeholder="例如：一份炒米粉、一顆蘋果跟兩片甜不辣"
-    )
-    
-    col_btn1, col_btn2 = st.columns([1, 4])
-    with col_btn1:
-        # 按下開始分析，只負責向 AI 拿資料
-        analyze_btn = st.button("開始分析", type="primary")
-
-# 1. 觸發 AI 分析邏輯
-if analyze_btn:
-    if not user_input:
-        st.warning("請先輸入內容喔！")
-    else:
-        with st.spinner("正在為您計算多項食物營養..."):
-            try:
-                prompt = f"""
-                你是一位專業營養師。請分析以下飲食內容中的每一項食物，最後回傳一個總和的 JSON 格式。
-                要求回傳格式（嚴格遵守）：
-                {{"food_item": "食物清單簡述", "calories": 總熱量數字, "protein": 總蛋白質數字, "fat": 總脂肪數字, "carbs": 總碳水數字}}
-                
-                飲食內容：{user_input}
-                """
-
-                response = client.models.generate_content(
-                    model="gemini-3-flash-preview",
-                    contents=prompt,
-                    config={'response_mime_type': 'application/json'}
-                )
-
-                # 解析並存入 session_state 暫存
-                raw_text = response.text.strip()
-                # 簡單清理可能的 Markdown 標籤
-                if "```" in raw_text:
-                    raw_text = raw_text.split("```")[1].replace("json", "").strip()
-                
-                # 將結果存入暫存，防止按鈕刷新後消失
-                st.session_state.ai_diet_data = json.loads(raw_text)
-                st.success("✅ AI 分析完成，請確認下方數據：")
-
-            except Exception as e:
-                st.error(f"❌ 分析失敗：{e}")
-
-# 2. 顯示預覽結果與「確認存檔」按鈕
-# 判斷暫存區是否有資料，有的話才顯示預覽卡片
-if "ai_diet_data" in st.session_state:
-    diet_data = st.session_state.ai_diet_data
-    
-    with st.container(border=True):
-        st.markdown(f"🔍 **分析結果預覽**：{diet_data.get('food_item', '未命名')}")
+        weekly_df.columns = ['diet_date', 'daily_total']
         
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("總熱量", f"{diet_data.get('calories', 0)} kcal")
-        c2.metric("蛋白質", f"{diet_data.get('protein', 0)} g")
-        c3.metric("脂肪", f"{diet_data.get('fat', 0)} g")
-        c4.metric("碳水", f"{diet_data.get('carbs', 0)} g")
-        
-        # 讓使用者在存檔前可以自選餐別
-        meal_choice = st.selectbox("確認這筆紀錄的餐別：", ["早餐", "午餐", "晚餐", "點心", "其他"], index=0)
-
-        # 真正的存檔按鈕
-        if st.button("確認正確，存入資料庫", use_container_width=True):
-            save_diet_record(
-                diet_data['food_item'], 
-                diet_data['calories'], 
-                diet_data['protein'], 
-                diet_data['fat'], 
-                diet_data['carbs'], 
-                meal_choice
-            )
-            st.toast(f"🚀 紀錄已存入 {meal_choice}！")
-            
-            # 存完檔後清除暫存資料，讓介面變回乾淨狀態
-            del st.session_state.ai_diet_data
-            st.rerun()
-            
-    if st.button("取消分析並清除", key="cancel_ai"):
-        del st.session_state.ai_diet_data
-        st.rerun()
-
-st.caption("本系統採用 Gemini 3 Flash Preview 模型進行分析")
-
-# 在 app.py 的圖表區塊
-st.divider()
-st.subheader("📈 過去七天熱量趨勢")
-
-
-# 呼叫 db_manager 裡的函數
-weekly_df = get_weekly_summary()
-
-if not weekly_df.empty:
- 
-    weekly_df.columns = ['diet_date', 'daily_total']
-    
-    fig_trend = px.line(
-        weekly_df, 
-        x='diet_date', 
-        y='daily_total', 
-        markers=True,
-        title="過去七天熱量趨勢"
-    )
-    st.plotly_chart(fig_trend)
-else:
-    st.info("尚無趨勢數據。")
-
-st.divider()
-st.subheader("🍕 過去七天營養比例")
-
-nutrition_df = get_weekly_nutrition()
-
-st.write(nutrition_df)
-
-# 1. 營養圓餅圖部分 (確保使用我們在 db_manager 改好的 get_weekly_nutrition)
-nutrition_df = get_weekly_nutrition()
-
-if not nutrition_df.empty:
-    # PostgreSQL 的欄位名稱通常會維持小寫
-    p = nutrition_df['total_protein'].iloc[0]
-    f = nutrition_df['total_fat'].iloc[0]
-    c = nutrition_df['total_carbs'].iloc[0]
-    
-    total_weight = p + f + c
-    
-    if total_weight > 0:
-        pie_data = pd.DataFrame({
-            "營養素": ["蛋白質", "脂肪", "碳水化合物"],
-            "重量 (g)": [float(p), float(f), float(c)] # 轉為 float 確保 Plotly 讀取
-        })
-        
-        fig_pie = px.pie(
-            pie_data, 
-            values='重量 (g)', 
-            names='營養素', 
-            hole=0.4,
-            color_discrete_sequence=px.colors.qualitative.Set3
+        fig_trend = px.line(
+            weekly_df, 
+            x='diet_date', 
+            y='daily_total', 
+            markers=True,
+            title="過去七天熱量趨勢"
         )
-        st.plotly_chart(fig_pie, use_container_width=True)
+        st.plotly_chart(fig_trend)
     else:
-        st.info("💡 過去七天尚無營養數據。")
-else:
-    st.error("無法從 PostgreSQL 讀取數據，請檢查資料庫連線。")
+        st.info("尚無趨勢數據。")
 
-# 2. 原始資料檢查部分 (也要改成 PostgreSQL 連線)
-st.divider()
-st.subheader("🔍 資料庫同步狀態檢查")
-try:
-    # 使用我們在 db_manager 定義好的 get_connection
-    from db_manager import get_connection 
-    conn = get_connection()
-    
-    if conn:
-        # 測試抓取最後 5 筆
-        raw_check = pd.read_sql_query("SELECT * FROM diet_logs ORDER BY id DESC LIMIT 10", conn)
-        st.write("最新的 10 筆原始資料：", raw_check)
-        conn.close()
+    st.divider()
+    st.subheader("🍕 過去七天營養比例")
+
+    nutrition_df = get_weekly_nutrition()
+
+    st.write(nutrition_df)
+
+    # 1. 營養圓餅圖部分 (確保使用我們在 db_manager 改好的 get_weekly_nutrition)
+    nutrition_df = get_weekly_nutrition()
+
+    if not nutrition_df.empty:
+        # PostgreSQL 的欄位名稱通常會維持小寫
+        p = nutrition_df['total_protein'].iloc[0]
+        f = nutrition_df['total_fat'].iloc[0]
+        c = nutrition_df['total_carbs'].iloc[0]
+        
+        total_weight = p + f + c
+        
+        if total_weight > 0:
+            pie_data = pd.DataFrame({
+                "營養素": ["蛋白質", "脂肪", "碳水化合物"],
+                "重量 (g)": [float(p), float(f), float(c)] # 轉為 float 確保 Plotly 讀取
+            })
+            
+            fig_pie = px.pie(
+                pie_data, 
+                values='重量 (g)', 
+                names='營養素', 
+                hole=0.4,
+                color_discrete_sequence=px.colors.qualitative.Set3
+            )
+            st.plotly_chart(fig_pie, use_container_width=True)
+        else:
+            st.info("💡 過去七天尚無營養數據。")
     else:
-        st.error("無法建立 PostgreSQL 連線，請檢查 .env 設定。")
-except Exception as e:
-    st.error(f"查詢原始資料時出錯：{e}")
+        st.error("無法從 PostgreSQL 讀取數據，請檢查資料庫連線。")
 
-st.divider()
-st.subheader("🗓️ 今日飲食明細管理")
-
-# 從資料庫撈取今日資料
-today_items = get_today_records()
-
-if today_items:
-    # 建立標題列
-    h_col1, h_col2, h_col3, h_col4 = st.columns([3, 2, 2, 1])
-    h_col1.caption("食物名稱")
-    h_col2.caption("熱量 (kcal)")
-    h_col3.caption("三大營養素 (P/F/C)")
-    h_col4.caption("操作")
-
-    for item in today_items:
-        with st.container():
-            col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
-            
-            # 顯示基本資訊
-            col1.write(f"**{item['food_name']}** ({item['meal_type']})")
-            col2.write(f"{item['calories']} kcal")
-            col3.write(f"{item['protein']}/{item['fat']}/{item['carbs']}")
-            
-            # 刪除按鈕
-            # 使用 key=f"del_{item['id']}" 確保每個按鈕的 ID 唯一
-            if col4.button("🗑️", key=f"del_{item['id']}"):
-                delete_record(item['id'])
-                st.success(f"已刪除 {item['food_name']}")
-                st.rerun() # 立即重新整理頁面，讓圖表和清單同步更新
-else:
-    st.info("今天還沒有任何飲食紀錄，快去上方輸入吧！")
+# 2. 原始資料檢查部分
