@@ -181,30 +181,33 @@ def get_today_exercise():
     return total
 
 def get_weekly_summary():
-    """撈取過去七天熱量趨勢 (PostgreSQL 版)"""
+    """撈取過去七天熱量趨勢 (含補 0 邏輯)"""
     conn = get_connection()
     if not conn: return pd.DataFrame()
     
-    # PostgreSQL 的時間語法與 SQLite 不同
-    # 我們使用 CURRENT_DATE - INTERVAL '7 days'
     query = """
-    SELECT created_at::date as diet_date, SUM(calories) as daily_total 
-    FROM diet_logs
-    WHERE created_at >= CURRENT_DATE - INTERVAL '7 days'
-    GROUP BY created_at::date
-    ORDER BY diet_date ASC;
+    SELECT 
+        all_dates.diet_date, 
+        COALESCE(SUM(diet_logs.calories), 0) as daily_total
+    FROM (
+        SELECT (CURRENT_DATE - (i || ' day')::interval)::date as diet_date
+        FROM generate_series(0, 6) AS i
+    ) all_dates
+    LEFT JOIN diet_logs ON all_dates.diet_date = diet_logs.created_at::date
+    GROUP BY all_dates.diet_date
+    ORDER BY all_dates.diet_date ASC;
     """
     
     try:
-        # PostgreSQL 使用 read_sql，且不需要 params
         df = pd.read_sql_query(query, conn)
+        # 確保日期格式正確，避免 Plotly 繪圖異常
+        df['diet_date'] = pd.to_datetime(df['diet_date'])
         return df
     except Exception as e:
         print(f"❌ 趨勢資料讀取失敗：{e}")
         return pd.DataFrame()
     finally:
         conn.close()
-
 def get_weekly_nutrition():
     """撈取過去七天營養比例 (PostgreSQL 版)"""
     conn = get_connection()

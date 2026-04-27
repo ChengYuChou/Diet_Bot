@@ -19,6 +19,8 @@ st.title("🥗 飲食紀錄管理系統")
 
 initial_goal = int(get_setting('daily_calorie_goal', 2000))
 
+burned_calories = get_today_exercise()
+
 # 側邊欄功能
 with st.sidebar:
     st.header("⚙️ 個人設定")
@@ -36,7 +38,6 @@ with st.sidebar:
         st.toast(f"✅ 目標已更新為 {new_goal} kcal")
     
     st.divider()
-    st.info(f"💡 目前設定：{new_goal} kcal / 天")
 
     st.subheader("⚖️ 體重追蹤")
     current_weight = st.number_input("今日體重 (kg)", min_value=30.0, max_value=200.0, value=70.0, step=0.1)
@@ -60,17 +61,18 @@ if not df.empty:
     total_protein = df['protein'].sum()
     total_fat = df['fat'].sum()
     total_carbs = df['carbs'].sum()
-    remaining_calories = new_goal - total_calories
+    remaining_calories = new_goal - total_calories + burned_calories
 else:
     total_calories = total_protein = total_fat = total_carbs = 0
     remaining_calories = new_goal
 
 st.subheader("🔥 今日營養概覽")
-m1, m2, m3, m4 = st.columns(4)
+m1, m2, m3, m4, m5 = st.columns(5)
 m1.metric("已攝取熱量", f"{total_calories} kcal")
-m2.metric("剩餘預算", f"{remaining_calories} kcal", delta_color="inverse")
-m3.metric("蛋白質", f"{total_protein} g")
-m4.metric("碳水化合物", f"{total_carbs} g")
+m2.metric("今日運動消耗", f"{burned_calories} kcal")
+m3.metric("剩餘預算", f"{remaining_calories} kcal", delta_color="inverse")
+m4.metric("蛋白質", f"{total_protein} g")
+m5.metric("碳水化合物", f"{total_carbs} g")
 
 # 進度條
 progress_pct = min(total_calories / new_goal, 1.0)
@@ -236,15 +238,14 @@ with tab2:
         st.info("今天還沒有任何紀錄喔，快去第一分頁新增吧！")
 
     st.divider()
-    st.subheader("🔍 資料庫同步狀態檢查")
+    st.subheader("Recently Veiw")
     try:
         # 使用我們在 db_manager 定義好的 get_connection
         from db_manager import get_connection 
         conn = get_connection()
         
         if conn:
-            # 測試抓取最後 5 筆
-            raw_check = pd.read_sql_query("SELECT * FROM diet_logs ORDER BY id DESC LIMIT 10", conn)
+            raw_check = pd.read_sql_query("SELECT created_at as Date, meal_type, food_name, calories, fat, carbs FROM diet_logs ORDER BY id DESC LIMIT 10", conn)
             st.write("最新的 10 筆原始資料：", raw_check)
             conn.close()
         else:
@@ -311,7 +312,7 @@ with tab2:
 with tab3:
     st.subheader("新增運動消耗")
 
-    burned_calories = get_today_exercise()
+
     net_calories = total_calories - burned_calories
 
     st.subheader("🔥 今日營養概覽")
@@ -359,12 +360,12 @@ with tab4:
 
     if not weekly_df.empty:
     
-        weekly_df.columns = ['diet_date', 'daily_total']
+        weekly_df.columns = ['時間', '熱量']
         
         fig_trend = px.line(
             weekly_df, 
-            x='diet_date', 
-            y='daily_total', 
+            x='時間', 
+            y='熱量', 
             markers=True,
             title="過去七天熱量趨勢"
         )
@@ -409,4 +410,3 @@ with tab4:
     else:
         st.error("無法從 PostgreSQL 讀取數據，請檢查資料庫連線。")
 
-# 2. 原始資料檢查部分
