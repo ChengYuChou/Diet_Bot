@@ -15,7 +15,7 @@ DB_PATH = os.path.join(BASE_DIR, "diet_system.db")
 
 
 st.set_page_config(page_title="飲食管理系統", layout="wide")
-st.title("🥗 飲食紀錄管理系統")
+st.title("飲食紀錄管理系統")
 
 initial_goal = int(get_setting('daily_calorie_goal', 2000))
 
@@ -75,7 +75,7 @@ m4.metric("蛋白質", f"{total_protein} g")
 m5.metric("碳水化合物", f"{total_carbs} g")
 
 # 進度條
-progress_pct = min(total_calories / new_goal, 1.0)
+progress_pct = min((total_calories - burned_calories) / new_goal, 1.0)
 st.progress(progress_pct, text=f"今日熱量進度: {int(progress_pct*100)}%")
 
 if total_calories > new_goal:
@@ -211,48 +211,58 @@ with tab1:
 
 # --- Tab 2: 紀錄管理 ---
 with tab2:
-    st.subheader("今日飲食明細")
-    records = get_today_records()
+    st.subheader("🍗 蛋白質攝取水位追蹤")
+
+    # 1. 計算目標水位 (體重 * 1.5)
+    # 這裡的 weight 來自你側邊欄的 st.number_input("今日體重 (kg)")
+    protein_target = weight * 1.5
     
-    if records:
-        df = pd.DataFrame(records)
-        
-        display_df = df[['meal_type', 'food_name', 'calories', 'protein', 'fat', 'carbs']]
-        st.dataframe(display_df, use_container_width=True)
-        
-        st.divider()
-        
-        st.subheader("🗑️ 刪除錯誤紀錄")
-        # 讓使用者透過 ID 選擇要刪除哪一筆
-        delete_id = st.selectbox(
-            "選擇要刪除的紀錄 ID", 
-            df['id'].tolist(),
-            format_func=lambda x: f"ID: {x} - {df[df['id']==x]['food_name'].values[0]}"
-        )
-        
-        if st.button("確認刪除這筆紀錄"):
-            delete_record(delete_id)
-            st.warning(f"已刪除 ID 為 {delete_id} 的紀錄")
-            st.rerun()
+    # 2. 建立水位圖數據
+    # 確保 total_protein 已經在前面計算好了
+    current_p = float(total_protein)
+    
+    # 準備 Plotly 數據
+    water_level_data = pd.DataFrame({
+        "類別": ["蛋白質攝取量"],
+        "當前量": [current_p],
+        "目標量": [protein_target]
+    })
+
+    # 3. 繪製直方圖 (水位效果)
+    fig_water = px.bar(
+        water_level_data, 
+        x="類別", 
+        y="當前量",
+        range_y=[0, max(protein_target * 1.2, current_p * 1.1)], # 讓 y 軸稍微高出目標，視覺較舒適
+        text_auto=True,
+        title=f"今日目標：{protein_target:.1f} g (體重 {weight}kg × 1.5)",
+        color_discrete_sequence=["#3366ff"] # 水位顏色
+    )
+
+    # 4. 加入目標橫線 (目標水位線)
+    fig_water.add_hline(
+        y=protein_target, 
+        line_dash="dash", 
+        line_color="red", 
+        annotation_text=f"目標線: {protein_target:.1f}g", 
+        annotation_position="top right"
+    )
+
+    # 優化圖表樣式
+    fig_water.update_layout(
+        height=400,
+        yaxis_title="蛋白質重量 (g)",
+        xaxis_title="",
+        showlegend=False
+    )
+
+    st.plotly_chart(fig_water, use_container_width=True)
+
+    # 顯示文字回饋
+    if current_p < protein_target:
+        st.info(f"還差 **{protein_target - current_p:.1f} g** 蛋白質就能達標，加油！")
     else:
-        st.info("今天還沒有任何紀錄喔，快去第一分頁新增吧！")
-
-    st.divider()
-    st.subheader("Recently Veiw")
-    try:
-        # 使用我們在 db_manager 定義好的 get_connection
-        from db_manager import get_connection 
-        conn = get_connection()
-        
-        if conn:
-            raw_check = pd.read_sql_query("SELECT created_at as Date, meal_type, food_name, calories, fat, carbs FROM diet_logs ORDER BY id DESC LIMIT 10", conn)
-            st.write("最新的 10 筆原始資料：", raw_check)
-            conn.close()
-        else:
-            st.error("無法建立 PostgreSQL 連線，請檢查 .env 設定。")
-    except Exception as e:
-        st.error(f"查詢原始資料時出錯：{e}")
-
+        st.success(f"🎊 已達成目標！超標 {(current_p - protein_target):.1f} g")
     st.divider()
     st.subheader("🗓️ 今日飲食明細管理")
 
