@@ -78,7 +78,7 @@ m5.metric("碳水化合物", f"{total_carbs} g")
 progress_pct = min((total_calories - burned_calories) / new_goal, 1.0)
 st.progress(progress_pct, text=f"今日熱量進度: {int(progress_pct*100)}%")
 
-if total_calories > new_goal:
+if total_calories - burned_calories > new_goal:
     st.warning(f"⚠️ 警告：已超過每日熱量目標 {total_calories - new_goal} kcal！")
 elif remaining_calories < 300 and remaining_calories > 0:
     st.info("💡 剩餘額度不多了，晚餐建議吃清淡一點喔！")
