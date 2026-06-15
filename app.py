@@ -3,6 +3,7 @@ import pandas as pd
 import os
 import json
 from google import genai
+from diet_agent import ask_diet_agent
 import plotly.express as px
 from db_manager import save_diet_record, get_today_records, delete_record, get_setting, update_setting, save_exercise_record, get_today_exercise, get_weekly_summary, get_weekly_nutrition
 
@@ -317,6 +318,30 @@ with tab2:
                                 labels={'meal_type': '餐別', 'calories': '總熱量'},
                                 color='meal_type')
                 st.plotly_chart(fig_meals, use_container_width=True)
+
+    st.divider()
+    st.subheader(" AI 智慧飲食規劃教練 ")
+    st.caption("輸入你想詢問的飲食建議，AI 會主動去查你的資料庫紀錄來為你規劃！")
+
+    # 建立對話輸入框
+    agent_input = st.text_input(
+        "向 AI 教練提問：", 
+        placeholder="例如：幫我規劃一份晚餐，要補滿我今天剩下的蛋白質，且熱量不超標"
+    )
+
+    if st.button("發送詢問", type="primary"):
+        if agent_input:
+            with st.spinner("AI 正在翻閱您的今日紀錄並思考菜單..."):
+                try:
+                    # 呼叫 LangChain Agent 進行推理與回答
+                    ai_response = ask_diet_agent(agent_input)
+                    
+                    # 以對話框形式顯示結果
+                    st.chat_message("assistant").write(ai_response)
+                except Exception as e:
+                    st.error(f"Agent 執行失敗，可能是環境或套件衝突：{e}")
+        else:
+            st.warning("請先輸入你的問題喔！")
 #--------------------------------------------------------------------------------------------------------------------------------------------------------
 
 with tab3:
