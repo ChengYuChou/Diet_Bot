@@ -245,3 +245,45 @@ def delete_record(record_id):
         print(f"刪除失敗: {e}")
     finally:
         conn.close()
+
+def save_weekly_report(content):
+    """將 AI 生成的每週報告存入 PostgreSQL"""
+    conn = get_connection()
+    if not conn: return False
+    try:
+        cur = conn.cursor()
+        query = """
+        INSERT INTO weekly_reports (report_content, created_at)
+        VALUES (%s, CURRENT_DATE);
+        """
+        cur.execute(query, (content,))
+        conn.commit()
+        cur.close()
+        print("✅ 週報成功寫入資料庫")
+        return True
+    except Exception as e:
+        print(f"❌ 週報儲存失敗: {e}")
+        return False
+    finally:
+        conn.close()
+
+def get_latest_weekly_report():
+    """從 PostgreSQL 撈取最新一筆週報建議"""
+    conn = get_connection()
+    if not conn: return None
+    try:
+        cur = conn.cursor()
+        query = """
+        SELECT report_content 
+        FROM weekly_reports 
+        ORDER BY created_at DESC, id DESC 
+        LIMIT 1;
+        """
+        cur.execute(query)
+        row = cur.fetchone()
+        return row[0] if row else None
+    except Exception as e:
+        print(f"❌ 週報讀取失敗: {e}")
+        return None
+    finally:
+        conn.close()
