@@ -5,7 +5,8 @@ import json
 from google import genai
 from diet_agent import ask_diet_agent
 import plotly.express as px
-from db_manager import save_diet_record, get_today_records, delete_record, get_setting, update_setting, save_exercise_record, get_today_exercise, get_weekly_summary, get_weekly_nutrition
+from db_manager import save_diet_record, get_today_records, delete_record, get_setting, update_setting, save_exercise_record, get_today_exercise, get_weekly_summary, get_weekly_nutrition, save_weekly_report
+from dc_notice import push_latest_report_from_db
 
 api_key = os.getenv("GEMINI_API_KEY")
 client = genai.Client(api_key=api_key)
@@ -320,8 +321,12 @@ with tab2:
                 st.plotly_chart(fig_meals, use_container_width=True)
 
     st.divider()
-    st.subheader(" AI 智慧飲食規劃教練 ")
+    st.subheader("🤖 AI 智慧飲食規劃教練")
     st.caption("輸入你想詢問的飲食建議，AI 會主動去查你的資料庫紀錄來為你規劃！")
+
+    # 1. 初始化 Session State，用來暫存 AI 的最新回覆
+    if "current_ai_response" not in st.session_state:
+        st.session_state.current_ai_response = None
 
     # 建立對話輸入框
     agent_input = st.text_input(
@@ -336,13 +341,63 @@ with tab2:
                     # 呼叫 LangChain Agent 進行推理與回答
                     ai_response = ask_diet_agent(agent_input)
                     
-                    # 以對話框形式顯示結果
-                    st.chat_message("assistant").write(ai_response)
+                    # 將 AI 的回答先暫存到 Session State
+                    st.session_state.current_ai_response = ai_response
+                    
                 except Exception as e:
                     st.error(f"Agent 執行失敗，可能是環境或套件衝突：{e}")
+                    st.session_state.current_ai_response = None
         else:
             st.warning("請先輸入你的問題喔！")
-#--------------------------------------------------------------------------------------------------------------------------------------------------------
+
+    # 3. 【核心邏輯】如果 Session State 裡有暫存的 AI 回答，就顯示出來並提供操作按鈕
+    if st.session_state.current_ai_response:
+        # 以對話框形式持續顯示結果（確保頁面 Rerun 時不會消失）
+        st.chat_message("assistant").write(st.session_state.current_ai_response)
+        
+        st.write("---")
+        # 調整欄位比例，讓三個按鈕能優雅並排
+        col1, col2, col3 = st.columns([1.5, 2, 3])
+        
+        with col1:
+            # 僅儲存按鈕
+            if st.button("💾 僅儲存至資料庫", use_container_width=True):
+                save_success = save_weekly_report(st.session_state.current_ai_response)
+                if save_success:
+                    st.success("🎉 成功存入週報資料表！")
+                    st.session_state.current_ai_response = None
+                    st.rerun()
+                else:
+                    st.error("❌ 儲存失敗，請檢查資料庫連線。")
+        
+        with col2:
+            # 儲存並推播按鈕
+            if st.button("🚀 儲存並推播 Discord", type="primary", use_container_width=True):
+                # A. 先存入資料庫
+                save_success = save_weekly_report(st.session_state.current_ai_response)
+                if save_success:
+                    st.success("🎉 成功存入週報資料表！")
+                    
+                    # B. 資料庫確認寫入後，直接觸發從資料庫讀取最新內容並推播
+                    with st.spinner("🚀 正在同步推播至 Discord 伺服器..."):
+                        # 💡 確保 app.py 上方有 import push_latest_report_from_db
+                        push_success = push_latest_report_from_db()
+                        if push_success:
+                            st.toast("📢 Discord 頻道已同步收到您的教練報告！", icon="🚀")
+                        else:
+                            st.warning("⚠️ 週報已存，但 Discord 推播失敗，請檢查 .env 設定。")
+                    
+                    # 結束後清除暫存並刷新
+                    st.session_state.current_ai_response = None
+                    st.rerun()
+                else:
+                    st.error("❌ 儲存失敗，請檢查資料庫連線。")
+                    
+        with col3:
+            # 清除按鈕
+            if st.button("❌ 刪除/不儲存", use_container_width=True):
+                st.session_state.current_ai_response = None
+                st.rerun()#--------------------------------------------------------------------------------------------------------------------------------------------------------
 
 with tab3:
     st.subheader("新增運動消耗")
