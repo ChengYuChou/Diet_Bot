@@ -16,10 +16,10 @@
 ```text
 diet-bot-project/
 ├── app.py                 # Streamlit 主程式 (UI 與互動邏輯)
-├── db_manager.py          # 資料庫存取層 (SQL CRUD 邏輯)
+├── db_manager.py          # 資料庫存取層
 ├── database.py            # 資料庫初始設定測試
 ├── API_check.py           # API 連線驗證工具
 ├── docker-compose.yml     # Docker 容器配置檔案
 ├── requirements.txt       # 專案套件相依清單
-├── .gitignore             # Git 忽略清單 (保護 .env 與 .venv)
-└── README.md              # 專案說明文件 (本檔案)
+├── .gitignore             # Git 忽略清單
+└── README.md              # 專案說明文件
